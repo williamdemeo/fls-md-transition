@@ -1,113 +1,132 @@
--- Initial draft for agda-filter.lua (handling code blocks)
+-- agda-filter.lua
+-- Converts pre-processed LaTeX AST elements into .lagda.md format
 
-local stringify = require('pandoc.utils').stringify -- Useful for getting plain text content
+local PANDOC_VERSION = pandoc.utils.pandoc_version
 
--- Function to check if a code block has the '[hide]' option
--- NOTE: This function needs refinement based on how Pandoc actually parses \begin{code}[hide]
-local function is_hidden_code(block_or_div)
-  -- Pandoc often parses environments like \begin{foo}[opt]{arg} into Divs
-  -- with classes 'foo' and attributes/data for opts/args, containing the content.
-  -- Let's check if the element passed is a Div that might represent the 'code' environment.
-
-  if block_or_div.t == "Div" then
-     -- Check if this Div represents our code environment (maybe class 'code'?)
-     -- and if it has an attribute or class indicating 'hide'.
-     -- This structure depends heavily on how Pandoc's LaTeX reader handles \begin{code}.
-     -- Example check:
-     -- if block_or_div.classes and pandoc.utils.list_contains(block_or_div.classes, 'code') then
-     --   if block_or_div.attributes and block_or_div.attributes['hide'] then return true end
-     --   if pandoc.utils.list_contains(block_or_div.classes, 'hide') then return true end -- Alternative
-     -- end
-  elseif block_or_div.t == "CodeBlock" then
-     -- Less likely for environments with options, but maybe check attributes here too?
-     -- if block_or_div.attributes and block_or_div.attributes['hide'] then return true end
-  elseif block_or_div.t == "RawBlock" and block_or_div.format == "latex" then
-     -- Fallback: Check raw LaTeX if Pandoc didn't parse it structuredly
-     if string.match(block_or_div.text, "^\\begin{code}%[hide%]") then
-        -- We'd need more logic here to extract the content properly
-        -- This indicates a potential issue with Pandoc parsing this env
-        return true -- Mark as hidden, but processing needs work
-     end
+-- Helper function to reconstruct code string from list of Paras/Strs/Spaces etc.
+-- This needs to be careful about preserving formatting/indentation.
+local function reconstruct_code(blocks)
+  local code_lines = {}
+  for i, block in ipairs(blocks) do
+    -- Use pandoc.utils.stringify to get raw text content of each block (likely a Para)
+    -- This might collapse whitespace, need care. A more manual traversal might be better.
+    local block_text = pandoc.utils.stringify(block)
+    table.insert(code_lines, block_text)
   end
+  -- Join lines with newline. This is a basic version and might need
+  -- refinement based on how Pandoc structures the content (e.g., SoftBreaks).
+  -- It likely won't preserve original indentation perfectly without more complex traversal.
+  local reconstructed = table.concat(code_lines, "\n")
+  -- A common issue: pandoc.utils.stringify might add unwanted spaces or process escapes.
+  -- A safer (but more verbose) approach involves walking the inline elements manually.
+  -- For now, let's see what stringify produces.
 
-  -- *** This function is HIGHLY DEPENDENT on Pandoc's LaTeX parsing output ***
-  -- *** We MUST inspect Pandoc's AST output first (native or json) ***
+  -- Basic cleanup: Trim leading/trailing whitespace from the whole block
+  reconstructed = reconstructed:match("^%s*(.-)%s*$")
 
-  return false -- Default to not hidden
+  return reconstructed
 end
 
--- Process Div elements first, in case Pandoc wraps code environments in Divs
-function Div(div)
-  -- Check if this Div represents a code block that should be hidden
-  if is_hidden_code(div) then
-     -- Assuming the Div contains a single CodeBlock (or list of blocks)
-     local content_blocks = div.content
 
-     -- Find the actual CodeBlock(s) inside
-     local code_blocks = {}
-     for _, element in ipairs(content_blocks) do
-        if element.t == "CodeBlock" then
-           -- Ensure it has 'agda' class
-           element.classes = element.classes or {}
-           if not pandoc.utils.list_contains(element.classes, 'agda') then
-              table.insert(element.classes, 1, 'agda')
-           end
-           table.insert(code_blocks, element)
-        end
-     end
-
-     if #code_blocks > 0 then
-        -- Wrap the extracted code blocks in <details> HTML
-        local summary_text = pandoc.RawInline('html', '<summary>View Hidden Code</summary>')
-        local opening_tag = pandoc.RawBlock('html', '<details class="hidden-code">')
-        local summary_para = pandoc.Para({summary_text})
-        local closing_tag = pandoc.RawBlock('html', '</details>')
-
-        -- Construct the list of blocks to return
-        local result_blocks = { opening_tag, summary_para }
-        for _, cb in ipairs(code_blocks) do
-            -- Convert code block to raw HTML pre/code for simplicity within details
-            -- (Or pass AST through if md_in_html extension works well)
-            local code_content = cb.text
-            local html_code_block = pandoc.RawBlock('html',
-              '<div class="highlight"><pre><code class="language-agda">' .. pandoc.utils.html_escape(code_content) .. '</code></pre></div>'
-            )
-           table.insert(result_blocks, html_code_block)
-        end
-        table.insert(result_blocks, closing_tag)
-        return result_blocks -- Return list of blocks replacing the Div
-     end
+-- Helper function to parse key=value pairs from placeholder string
+-- e.g., "basename=Acnt, class=AgdaRecord"
+local function parse_placeholder_args(arg_string)
+  local args = {}
+  for key, value in string.gmatch(arg_string, "([%w_]+)=([^,]+)") do
+    -- Trim whitespace from value just in case
+    value = value:match("^%s*(.-)%s*$")
+    args[key] = value
   end
-  -- If not a hidden code Div, return it unchanged for further processing (e.g., CodeBlock function below)
+  return args
+end
+
+-- Process Div blocks (mainly for code environments)
+function Div(div)
+  -- Check for VisibleAgdaCode
+  if pandoc.utils.list_contains(div.classes, "VisibleAgdaCode") then
+    local code_str = reconstruct_code(div.content)
+    -- Create a CodeBlock with 'agda' class
+    -- Attributes format depends on pandoc version
+    local attrs = pandoc.Attr("", {"agda"}, {}) -- Pandoc 3.x format
+    if PANDOC_VERSION < {3,0,0} then
+       attrs = {"", {"agda"}, {}} -- Pandoc 2.x format
+    end
+    return pandoc.CodeBlock(code_str, attrs)
+  end
+
+  -- Check for HiddenAgdaCode
+  if pandoc.utils.list_contains(div.classes, "HiddenAgdaCode") then
+    local code_str = reconstruct_code(div.content)
+    -- Wrap the reconstructed code (as an Agda fenced block) in HTML comments
+    local hidden_code_md = ""
+    return pandoc.RawBlock("html", hidden_code_md)
+  end
+
+  -- Handle other environments like NoConway, Conway, figure*
+  -- Option 1: Just return the Div, let Pandoc handle it (might become basic div in HTML)
+  -- Option 2: Convert to Raw HTML block for explicit control
+  -- Let's try Option 1 first for simplicity
+  if pandoc.utils.list_contains(div.classes, "NoConway") or
+     pandoc.utils.list_contains(div.classes, "Conway") or
+     pandoc.utils.list_contains(div.classes, "figure*") or
+     pandoc.utils.list_contains(div.classes, "AgdaMultiCode") -- If preprocessor leaves this
+  then
+     -- Return the Div as is - Pandoc might render it as <div class="..."> in HTML output
+     -- We might need walk_block if content needs further processing by other filter functions
+     return div
+     -- Alternative: return pandoc.Div(pandoc.walk_block(div.content, {}), div.attr)
+  end
+
+  -- Otherwise, return the Div unchanged
   return div
 end
 
-
--- Process CodeBlock elements (might be called after Div processing)
-function CodeBlock(block)
-  -- Ensure it has the 'agda' class for syntax highlighting
-  local has_agda_class = false
-  if block.classes then
-    for _, class in ipairs(block.classes) do
-      if class == 'agda' then
-        has_agda_class = true
-        break
+-- Process RawInline elements (mainly for placeholders)
+function RawInline(inline)
+  -- Check if it's a raw latex placeholder we created
+  if inline.format:match 'latex' then
+    -- Check for AgdaTermPlaceholder
+    local placeholder_match = inline.text:match '\\AgdaTermPlaceholder{(.*)}'
+    if placeholder_match then
+      local args = parse_placeholder_args(placeholder_match)
+      if args.basename and args['class'] then -- Renamed 'class' key lookup
+         -- Create CSS class like 'agda-agdatype'
+         local css_class = "agda-" .. args['class']:lower()
+         -- Create Code inline element with attributes
+         -- Pandoc 3.x uses Attr constructor; earlier versions used plain tables.
+         local attrs
+         if PANDOC_VERSION >= {3,0,0} then
+             attrs = pandoc.Attr("", {css_class}, {})
+         else
+             attrs = {"", {css_class}, {}}
+         end
+         return pandoc.Code(args.basename, attrs)
       end
     end
-  else
-    block.classes = {} -- Initialize classes if nil
+
+    -- Check for HighlightPlaceholder
+    local highlight_match = inline.text:match '\\HighlightPlaceholder{(.*)}'
+    if highlight_match then
+       local content_str = highlight_match -- Simple string content for now
+       -- We should ideally parse content_str back to Pandoc Inline elements
+       -- For now, assume simple text:
+       local content_inline = { pandoc.Str(content_str) }
+       -- Wrap in a Span with class 'highlight'
+       local attrs
+       if PANDOC_VERSION >= {3,0,0} then
+           attrs = pandoc.Attr("", {"highlight"}, {})
+       else
+           attrs = {"", {"highlight"}, {}}
+       end
+       return pandoc.Span(content_inline, attrs)
+    end
+
   end
 
-  if not has_agda_class then
-    table.insert(block.classes, 1, 'agda') -- Add 'agda' class if not present
-  end
-
-  -- If it wasn't handled by the Div function (e.g., regular \begin{code} parsed directly as CodeBlock)
-  -- return it as is (with potentially added 'agda' class)
-  return block
+  -- Otherwise return the RawInline element unchanged
+  return inline
 end
 
--- Add placeholders for other functions we'll need later
--- function Inline(el) ... end
--- function Para(el) ... end -- For \modulenote maybe
--- function Str(el) ... end
+-- Note: We might need handlers for other elements like Para, Header etc.
+-- if the pre-processor or default LaTeX reader introduces things
+-- that need adjustment for Markdown output (e.g., figure captions).
