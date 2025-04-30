@@ -1,9 +1,9 @@
--- agda-filter.lua
--- Converts pre-processed LaTeX AST elements into .lagda.md format
--- Corrected version 3: Checks for pandoc.Attr constructor existence instead of version number.
+-- agda-filter.lua (Version 4)
 
--- Helper function to check if a Lua list (table) contains an item
-local function list_contains(list, item)
+-- Remove the reconstruct_code function entirely
+
+-- Helper function to check if a Lua list (table) contains an item (Keep this)
+local function list_contains(list, item) 
    if not list then return false end
    for _, value in ipairs(list) do
      if value == item then
@@ -13,20 +13,8 @@ local function list_contains(list, item)
    return false
  end
  
- -- Helper function to reconstruct code string
- local function reconstruct_code(blocks)
-   local code_lines = {}
-   for i, block in ipairs(blocks) do
-     local block_text = pandoc.utils.stringify(block)
-     table.insert(code_lines, block_text)
-   end
-   local reconstructed = table.concat(code_lines, "\n")
-   reconstructed = reconstructed:match("^%s*(.-)%s*$")
-   return reconstructed
- end
- 
- -- Helper function to parse key=value pairs
- local function parse_placeholder_args(arg_string)
+ -- Helper function to parse key=value pairs (Keep this)
+ local function parse_placeholder_args(arg_string) 
    local args = {}
    for key, value in string.gmatch(arg_string, "([%w_]+)=([^,]+)") do
      value = value:match("^%s*(.-)%s*$")
@@ -37,72 +25,82 @@ local function list_contains(list, item)
  
  -- Process Div blocks (mainly for code environments)
  function Div(div)
+   local code_str = nil
+   local nested_code_block = nil
+ 
+   -- Find the nested CodeBlock (expected from \begin{verbatim})
+   -- It should ideally be the first block element inside the Div content
+   -- Check if content exists and the first element is a CodeBlock
+   if div.content and div.content[1] and div.content[1].t == "CodeBlock" then
+       nested_code_block = div.content[1]
+       code_str = nested_code_block.text -- Get text directly, preserving formatting
+   end
+ 
    -- Check for VisibleAgdaCode
    if list_contains(div.classes, "VisibleAgdaCode") then
-     local code_str = reconstruct_code(div.content)
-     local attrs -- Declare attrs variable
-     -- Check if pandoc.Attr constructor exists (Pandoc 3.x+)
-     if type(pandoc.Attr) == "function" then
-         attrs = pandoc.Attr("", {"agda"}, {}) -- Pandoc 3.x+ style
+     if code_str then
+         -- Create a NEW CodeBlock with the extracted text and 'agda' class
+         local attrs 
+         if type(pandoc.Attr) == "function" then attrs = pandoc.Attr("", {"agda"}, {})
+         else attrs = {"", {"agda"}, {}} end
+         -- Important: Return the CodeBlock directly, NOT the Div
+         return pandoc.CodeBlock(code_str, attrs) 
      else
-         attrs = {"", {"agda"}, {}} -- Older Pandoc 2.x style table
+         -- Fallback or warning if nested CodeBlock wasn't found as expected
+         return pandoc.Para({pandoc.Emph({pandoc.Str("Warning: Could not find verbatim code inside VisibleAgdaCode div.")})})
      end
-     return pandoc.CodeBlock(code_str, attrs)
    end
  
    -- Check for HiddenAgdaCode
    if list_contains(div.classes, "HiddenAgdaCode") then
-     local code_str = reconstruct_code(div.content)
-     local hidden_code_md = ""
-     return pandoc.RawBlock("html", hidden_code_md)
+      if code_str then
+         -- Wrap the extracted verbatim code (as an Agda fenced block) in HTML comments
+         -- Important: Return the RawBlock directly, NOT the Div
+         local hidden_code_md = "" 
+         return pandoc.RawBlock("html", hidden_code_md)
+      else
+         -- Fallback or warning
+         return pandoc.Para({pandoc.Emph({pandoc.Str("Warning: Could not find verbatim code inside HiddenAgdaCode div.")})})
+      end
    end
  
-   -- Handle other environments
+   -- Handle other environments (Keep previous logic or adjust as needed)
    if list_contains(div.classes, "NoConway") or
       list_contains(div.classes, "Conway") or
       list_contains(div.classes, "figure*") or
       list_contains(div.classes, "AgdaMultiCode")
    then
-      -- Returning the Div as is for now
-      return div
+      -- Returning the Div as is for now - let other filters or default processing handle content
+      -- Use pandoc.walk_block if filter needs to apply to content *within* these divs
+      return div 
    end
  
    -- Otherwise, return the Div unchanged
    return div
  end
  
- -- Process RawInline elements (mainly for placeholders)
+ -- Process RawInline elements (mainly for placeholders) - Keep this function as is from Version 3
  function RawInline(inline)
+    -- ... (same logic as previous version using parse_placeholder_args) ...
    if inline.format:match 'latex' then
-     -- Check for AgdaTermPlaceholder
      local placeholder_match = inline.text:match '\\AgdaTermPlaceholder{(.*)}'
      if placeholder_match then
        local args = parse_placeholder_args(placeholder_match)
        if args.basename and args['class'] then
           local css_class = "agda-" .. args['class']:lower()
-          local attrs -- Declare attrs variable
-          -- Check if pandoc.Attr constructor exists
-          if type(pandoc.Attr) == "function" then
-              attrs = pandoc.Attr("", {css_class}, {}) -- Pandoc 3.x+ style
-          else
-              attrs = {"", {css_class}, {}} -- Older Pandoc 2.x style table
-          end
+          local attrs
+          if type(pandoc.Attr) == "function" then attrs = pandoc.Attr("", {css_class}, {})
+          else attrs = {"", {css_class}, {}} end
           return pandoc.Code(args.basename, attrs)
        end
      end
- 
-     -- Check for HighlightPlaceholder
      local highlight_match = inline.text:match '\\HighlightPlaceholder{(.*)}'
      if highlight_match then
         local content_str = highlight_match
         local content_inline = { pandoc.Str(content_str) }
-        local attrs -- Declare attrs variable
-        -- Check if pandoc.Attr constructor exists
-        if type(pandoc.Attr) == "function" then
-            attrs = pandoc.Attr("", {"highlight"}, {}) -- Pandoc 3.x+ style
-        else
-            attrs = {"", {"highlight"}, {}} -- Older Pandoc 2.x style table
-        end
+        local attrs
+        if type(pandoc.Attr) == "function" then attrs = pandoc.Attr("", {"highlight"}, {})
+        else attrs = {"", {"highlight"}, {}} end
         return pandoc.Span(content_inline, attrs)
      end
    end

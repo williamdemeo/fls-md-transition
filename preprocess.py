@@ -56,29 +56,50 @@ def expand_hldiff(match):
     return f"\\HighlightPlaceholder{{{content}}}"
 
 # --- Main Processing Function ---
-
 def preprocess_lagda(content):
-    """Applies all preprocessing replacements to the input content."""
-    global macro_data # Ensure we're using the globally loaded data
+    """Applies all preprocessing replacements, wrapping code in verbatim."""
+    global macro_data 
 
-    # 1. Rename code environments (Same as before)
+    # 1. Wrap code environments AND rename them
+    # Use functions to handle replacement to capture content
+    def wrap_hidden(match):
+        original_code = match.group(1)
+        # Basic check to avoid double-wrapping if script runs twice
+        if original_code.strip().startswith('\\begin{verbatim}'):
+             return match.group(0) 
+        # Ensure newline after begin tags and before end tags if not present
+        original_code = original_code.strip() # Trim whitespace around the code block
+        return f"\\begin{{HiddenAgdaCode}}\n\\begin{{verbatim}}\n{original_code}\n\\end{{verbatim}}\n\\end{{HiddenAgdaCode}}"
+
+    def wrap_visible(match):
+        original_code = match.group(1)
+        if original_code.strip().startswith('\\begin{verbatim}'):
+             return match.group(0)
+        original_code = original_code.strip() # Trim whitespace around the code block
+        return f"\\begin{{VisibleAgdaCode}}\n\\begin{{verbatim}}\n{original_code}\n\\end{{verbatim}}\n\\end{{VisibleAgdaCode}}"
+
+    # Apply substitutions using the functions (non-greedy capture)
+    # Apply to hidden blocks first
     content = re.sub(r'\\begin\{code\}\s*\[hide\](.*?)\\end\{code\}',
-                     r'\\begin{HiddenAgdaCode}\1\\end{HiddenAgdaCode}',
+                     wrap_hidden,
                      content, flags=re.DOTALL)
+    # Apply to remaining visible blocks
     content = re.sub(r'\\begin\{code\}(.*?)\\end\{code\}',
-                     r'\\begin{VisibleAgdaCode}\1\\end{VisibleAgdaCode}',
+                     wrap_visible,
                      content, flags=re.DOTALL)
 
     # 2. Inline \modulenote (Same as before)
+    # Make sure this regex doesn't capture across unrelated braces
+    # Using a non-greedy match for the argument:
     content = re.sub(r'\\modulenote\{(.*?)\}', expand_modulenote, content)
 
-    # 3. Replace Agda term macros with placeholders *** USING LOADED JSON ***
+    # 3. Replace Agda term macros with placeholders (Same as before)
     if macro_data.get("agda_terms"): 
-      # Build pattern from keys in loaded JSON data
       agda_term_pattern = r'\\(' + '|'.join(re.escape(k) for k in macro_data["agda_terms"].keys()) + r')\{\}'
-      content = re.sub(agda_term_pattern, expand_agda_term_placeholder, content) # Use the new function
+      content = re.sub(agda_term_pattern, expand_agda_term_placeholder, content) 
 
     # 4. Replace \hldiff with placeholder (Same as before)
+    # Using a non-greedy match for the argument:
     content = re.sub(r'\\hldiff\{(.*?)\}', expand_hldiff, content)
 
     return content
