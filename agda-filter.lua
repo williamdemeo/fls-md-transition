@@ -14,11 +14,12 @@ local function list_contains(list, item)
  end
  
  -- Helper function to parse key=value pairs (Keep this)
- local function parse_placeholder_args(arg_string) 
+ local function parse_placeholder_args_from_marker(marker_text)
    local args = {}
-   for key, value in string.gmatch(arg_string, "([%w_]+)=([^,]+)") do
-     value = value:match("^%s*(.-)%s*$")
-     args[key] = value
+   -- Match key=value pairs between @@ markers
+   -- Example: basename=Acnt@@class=AgdaRecord
+   for key, value in string.gmatch(marker_text, "([^=@]+)=([^@]+)") do
+      args[key] = value
    end
    return args
  end
@@ -81,22 +82,13 @@ local function list_contains(list, item)
  
  -- Process RawInline elements (mainly for placeholders) - Keep this function as is from Version 3
  function RawInline(inline)
-    -- ... (same logic as previous version using parse_placeholder_args) ...
    if inline.format:match 'latex' then
-     local placeholder_match = inline.text:match '\\AgdaTermPlaceholder{(.*)}'
-     if placeholder_match then
-       local args = parse_placeholder_args(placeholder_match)
-       if args.basename and args['class'] then
-          local css_class = "agda-" .. args['class']:lower()
-          local attrs
-          if type(pandoc.Attr) == "function" then attrs = pandoc.Attr("", {css_class}, {})
-          else attrs = {"", {css_class}, {}} end
-          return pandoc.Code(args.basename, attrs)
-       end
-     end
+     -- Check for HighlightPlaceholder (assuming this *does* come through as RawInline)
      local highlight_match = inline.text:match '\\HighlightPlaceholder{(.*)}'
      if highlight_match then
         local content_str = highlight_match
+        -- If content can contain markup, we need to parse it.
+        -- For now, assuming simple text content:
         local content_inline = { pandoc.Str(content_str) }
         local attrs
         if type(pandoc.Attr) == "function" then attrs = pandoc.Attr("", {"highlight"}, {})
@@ -104,5 +96,34 @@ local function list_contains(list, item)
         return pandoc.Span(content_inline, attrs)
      end
    end
+   -- Return unchanged if not a known placeholder
    return inline
  end
+
+
+ -- *** NEW: Handler for Code inline elements ***
+function Code(inline)
+   -- Check if the text content contains our Agda term marker
+   -- Allow for optional whitespace around markers
+   local marker_match = inline.text:match "^%s*@@AgdaTerm@@(.-)@@%s*$"
+   if marker_match then
+      local payload = marker_match
+      local args = parse_placeholder_args_from_marker(payload) -- Use modified parser
+      if args.basename and args['class'] then
+          local css_class = "agda-" .. args['class']:lower()
+          local attrs
+          if type(pandoc.Attr) == "function" then attrs = pandoc.Attr("", {css_class}, {})
+          else attrs = {"", {css_class}, {}} end
+          -- Return a new Code element with the *correct* basename and attributes
+          return pandoc.Code(args.basename, attrs)
+      else
+         -- If parsing failed, maybe return the original marker text but as plain code?
+         print("Warning: Could not parse AgdaTerm marker payload: " .. payload)
+         return pandoc.Code(inline.text) -- Fallback: show the marker text
+      end
+   end
+ 
+   -- If it's not our special marker Code, return it unchanged
+   return inline
+ end
+ 
