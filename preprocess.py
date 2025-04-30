@@ -26,18 +26,26 @@ def expand_modulenote(match):
         print(f"Warning: Unexpected content inside modulenote: {inner_content}", file=sys.stderr)
         return match.group(0)
 
+# In preprocess.py
+
 def expand_agda_term_placeholder(match):
-    """Replaces \MacroName{} with \AgdaTermPlaceholder{...} using loaded JSON data."""
+    """Replaces \MacroName{} with \texttt{@@AgdaTerm@@...} marker"""
     global macro_data
     macro_name = match.group(1)
     term_info = macro_data.get("agda_terms", {}).get(macro_name)
+
     if term_info and isinstance(term_info, dict):
         basename = term_info.get("basename", macro_name)
         agda_class = term_info.get("agda_class", "AgdaUnknown")
-        return f"\\AgdaTermPlaceholder{{basename={basename}, class={agda_class}}}"
+        # New format: Use \texttt with markers
+        return f"\\texttt{{@@AgdaTerm@@basename={basename}@@class={agda_class}@@}}" # Double @@ for clarity
     else:
         print(f"Warning: Macro {macro_name} not found / malformed in JSON.", file=sys.stderr)
         return match.group(0)
+
+# Ensure expand_hldiff also uses a method Pandoc preserves if needed,
+# e.g., \texttt{@@Highlight@@...@@} or keep \HighlightPlaceholder if RawInline works for it.
+# Let's assume \HighlightPlaceholder works via RawInline for now unless proven otherwise.
 
 def expand_hldiff(match):
     """Replaces \hldiff{...} with \HighlightPlaceholder{...}."""
