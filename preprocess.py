@@ -1,113 +1,95 @@
+# In preprocess.py
 import re
-import json
+import json # Ensure these are imported
 import sys
 import os
 
-# --- Configuration ---
+# --- Configuration & Global Data --- (Keep as is)
 repo_url = "https://github.com/IntersectMBO/formal-ledger-specifications"
 repo_src_base = "blob/master/src/Ledger"
-macro_data = {}
+macro_data = {} # Ensure this is loaded in __main__
 
-# --- Replacement Functions ---
-
-def expand_modulenote(match):
-    """Expands \modulenote{\LedgerModule{Arg}} into text with \href."""
-    inner_content = match.group(1).strip()
-    module_arg_match = re.match(r'\\LedgerModule\{(.*?)\}', inner_content)
-    if module_arg_match:
-        module_name = module_arg_match.group(1)
-        module_text = f"Ledger.{module_name}"
-        module_file = f"{module_name}.lagda"
-        module_url = f"{repo_url}/{repo_src_base}/{module_file}"
-        module_link = f"\\href{{{module_url}}}{{\\texttt{{{module_text}}}}}"
-        repo_link = f"\\href{{{repo_url}}}{{formal ledger specification}}"
-        return f"This section is part of the {module_link} module of the {repo_link}"
-    else:
-        print(f"Warning: Unexpected content inside modulenote: {inner_content}", file=sys.stderr)
-        return match.group(0)
-
-# In preprocess.py
-
+# --- Placeholder expansion functions --- (Keep as is)
 def expand_agda_term_placeholder(match):
-    """Replaces \MacroName{} with \texttt{@@AgdaTerm@@...} marker"""
+    # ... (ensure this uses \texttt{@@AgdaTerm@@...}) ...
     global macro_data
     macro_name = match.group(1)
     term_info = macro_data.get("agda_terms", {}).get(macro_name)
-
     if term_info and isinstance(term_info, dict):
         basename = term_info.get("basename", macro_name)
         agda_class = term_info.get("agda_class", "AgdaUnknown")
-        # New format: Use \texttt with markers
-        return f"\\texttt{{@@AgdaTerm@@basename={basename}@@class={agda_class}@@}}" # Double @@ for clarity
+        return f"\\texttt{{@@AgdaTerm@@basename={basename}@@class={agda_class}@@}}"
     else:
-        print(f"Warning: Macro {macro_name} not found / malformed in JSON.", file=sys.stderr)
+        # print(f"Warning: Macro {macro_name} not found / malformed in JSON.", file=sys.stderr)
+        # Return original if not found, maybe add warning later if needed
         return match.group(0)
 
-# Ensure expand_hldiff also uses a method Pandoc preserves if needed,
-# e.g., \texttt{@@Highlight@@...@@} or keep \HighlightPlaceholder if RawInline works for it.
-# Let's assume \HighlightPlaceholder works via RawInline for now unless proven otherwise.
 
 def expand_hldiff(match):
-    """Replaces \hldiff{...} with \HighlightPlaceholder{...}."""
+    # ... (ensure this uses \HighlightPlaceholder) ...
     content = match.group(1)
     return f"\\HighlightPlaceholder{{{content}}}"
 
-
-# --- wrap_hidden / wrap_visible ---
+# --- Code wrapping functions --- (Keep as is from previous step, without .strip())
 def wrap_hidden(match):
-    original_code = match.group(1) # Capture the original code content
-    # DO NOT STRIP original_code
-    # Basic check to avoid double-wrapping
-    # Use lstrip() only for the check to handle potential leading whitespace before \begin{verbatim}
-    if original_code.lstrip().startswith('\\begin{verbatim}'):
-         return match.group(0)
-    # Wrap the original code, preserving its whitespace. Add newlines for clarity.
+    original_code = match.group(1)
+    if original_code.lstrip().startswith('\\begin{verbatim}'): return match.group(0)
     return f"\\begin{{HiddenAgdaCode}}\n\\begin{{verbatim}}{original_code}\\end{{verbatim}}\n\\end{{HiddenAgdaCode}}"
 
 def wrap_visible(match):
-    original_code = match.group(1) # Capture the original code content
-    # DO NOT STRIP original_code
-    # Basic check to avoid double-wrapping
-    if original_code.lstrip().startswith('\\begin{verbatim}'):
-         return match.group(0)
-    # Wrap the original code, preserving its whitespace. Add newlines for clarity.
+    original_code = match.group(1)
+    if original_code.lstrip().startswith('\\begin{verbatim}'): return match.group(0)
     return f"\\begin{{VisibleAgdaCode}}\n\\begin{{verbatim}}{original_code}\\end{{verbatim}}\n\\end{{VisibleAgdaCode}}"
+
 
 # --- Main Processing Function ---
 def preprocess_lagda(content):
-    """Applies all preprocessing replacements, wrapping code in verbatim."""
+    """Applies all preprocessing replacements..."""
     global macro_data
 
-    # 1. Wrap code environments AND rename them (using MODIFIED helpers)
-    # Apply to hidden blocks first
+    # 1. Wrap code environments (Using existing wrap_hidden/wrap_visible)
     content = re.sub(r'\\begin\{code\}\s*\[hide\](.*?)\\end\{code\}',
                      wrap_hidden,
                      content, flags=re.DOTALL)
-    # Apply to remaining visible blocks
     content = re.sub(r'\\begin\{code\}(.*?)\\end\{code\}',
                      wrap_visible,
                      content, flags=re.DOTALL)
 
-    # 2. Inline \modulenote (ensure non-greedy match for argument)
-    content = re.sub(r'\\modulenote\{(.*?)\}', expand_modulenote, content)
+    # *** 2. Inline \modulenote - REVISED HANDLING ***
+    # Define the replacement function directly here or call a helper
+    def replace_modulenote_direct(match):
+        module_name = match.group(1) # Capture group 1 is the module name
+        module_text = f"Ledger.{module_name}"
+        module_file = f"{module_name}.lagda"
+        # Basic URL construction, assumes module is directly under src/Ledger/
+        module_url = f"{repo_url}/{repo_src_base}/{module_file}"
+        # Use \href{URL}{\texttt{TEXT}} format
+        module_link = f"\\href{{{module_url}}}{{\\texttt{{{module_text}}}}}"
+        repo_link = f"\\href{{{repo_url}}}{{formal ledger specification}}"
+        # Construct the full sentence from the original macro definition
+        return f"This section is part of the {module_link} module of the {repo_link}"
 
-    # 3. Replace Agda term macros with placeholders
+    # Use the more specific regex targeting the known structure:
+    # Match \modulenote{ possibly spaces \LedgerModule{ CAPTURE_THIS } possibly spaces }
+    content = re.sub(r'\\modulenote\{\s*\\LedgerModule\{(.*?)\}\s*\}',
+                     replace_modulenote_direct,
+                     content)
+
+    # 3. Replace Agda term macros with \texttt{@@...@@} placeholders (Ensure this uses the correct function)
     if macro_data.get("agda_terms"):
       agda_term_pattern = r'\\(' + '|'.join(re.escape(k) for k in macro_data["agda_terms"].keys()) + r')\{\}'
       content = re.sub(agda_term_pattern, expand_agda_term_placeholder, content)
 
-    # 4. Replace \hldiff with placeholder (ensure non-greedy match for argument)
+    # 4. Replace \hldiff with placeholder (Ensure this uses the correct function)
     content = re.sub(r'\\hldiff\{(.*?)\}', expand_hldiff, content)
 
-    # 5. *** NEW: Remove figure* environment wrappers ***
-    # Remove \begin{figure*}[optional args] line
+    # 5. Remove figure* wrappers (Same as previous version)
     content = re.sub(r'^\s*\\begin\{figure\*}(\[[^\]]*\])?\s*?\n', '', content, flags=re.MULTILINE)
-    # Remove \end{figure*} line
     content = re.sub(r'^\s*\\end\{figure\*\}\s*?\n?', '', content, flags=re.MULTILINE)
 
     return content
 
-# --- Script Entry Point ---
+# --- Script Entry Point --- (Keep as is, loading JSON etc.)
 if __name__ == "__main__":
     if len(sys.argv) != 3:
         print(f"Usage: python {sys.argv[0]} <input_lagda_file> <input_macros_json_file>")
