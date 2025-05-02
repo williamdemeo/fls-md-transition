@@ -1,11 +1,9 @@
--- agda-filter.lua (Version 8 - Content Tabs)
+-- agda-filter.lua (Version 8 - Simplified for Tab Post-Processing)
 -- Processes output from preprocess.py (which wraps Agda code in verbatim
 -- within HiddenAgdaCode/VisibleAgdaCode environments, and uses
 -- \texttt{@@AgdaTerm@@...} placeholders for inline terms).
 -- Outputs GFM suitable for .lagda.md files, aiming to fix list rendering
 -- and code block formatting/presence issues.
-
--- agda-filter.lua (Version 8 - Simplified for Tab Post-Processing)
 
 -- Helper function to check if a Lua list (table) contains an item
 local function list_contains(list, item) if not list then return false end; for _, value in ipairs(list) do if value == item then return true end end; return false end
@@ -53,3 +51,27 @@ function Code(inline)
   end
   return inline
 end
+
+-- Handler for Paragraphs to detect Tab Markers ***
+function Para(para)
+  -- Check if paragraph consists ONLY of our tab marker string
+  -- Use pandoc.utils.stringify which gets the raw text of the Para's inlines
+  local para_text = pandoc.utils.stringify(para)
+  -- Match the marker pattern anchored to start/end after stripping whitespace
+  local marker_match = para_text:match("^%s*@@TAB_TITLE%|.*@@%s*$")
+
+  if marker_match then
+    -- If it's just the marker, output it as a Raw Markdown block
+    -- to ensure it stays on its own line in the intermediate file.
+    -- Include the original text (which already has the marker).
+    return pandoc.RawBlock("markdown", para_text .. "\n")
+  end
+
+  -- Otherwise, return the paragraph, but walk its content
+  -- to process any inline elements (Code, RawInline) inside it.
+  local walkers = { Code = Code, RawInline = RawInline }
+  return pandoc.walk_block(para, walkers)
+end
+
+-- Ensure all handlers (Div, RawInline, Code, Para) are implicitly returned
+-- by being global functions, or explicitly return them in a table if preferred.

@@ -1,4 +1,4 @@
-# preprocess.py (Placeholder Version)
+# preprocess.py (Phase 1 - Tab Markers)
 import re
 import json
 import sys
@@ -16,18 +16,17 @@ code_block_counter = 0
 macro_data = {}
 
 # --- Replacement Functions ---
-
 def process_code_block(match, is_hidden):
     """Captures code, stores it, returns placeholder."""
     global code_block_counter, code_blocks_data
     # Extract content between the \begin{code...} and \end{code}
     # Group 1 should capture the content due to (.*?)
-    original_code = match.group(1) 
+    original_code = match.group(1)
     code_block_counter += 1
     placeholder_id = f"@@CODEBLOCK_ID_{code_block_counter}@@"
 
     # Ensure content ends with a newline for consistency, preserve others
-    # Careful: original_code might be None if regex somehow fails group capture
+    # Caution: original_code might be None if regex somehow fails group capture
     if original_code is None: original_code = "" # Safety check
     if not original_code.endswith('\n'): original_code += '\n'
 
@@ -39,7 +38,7 @@ def process_code_block(match, is_hidden):
     return placeholder_id
 
 def replace_modulenote_direct(match):
-    """Expands \modulenote directly"""
+    """Expands modulenote directly"""
     module_name = match.group(1) # Capture group 1 is the module name
     module_text = f"Ledger.{module_name}"
     module_file = f"{module_name}.lagda"
@@ -49,12 +48,13 @@ def replace_modulenote_direct(match):
     return f"This section is part of the {module_link} module of the {repo_link}"
 
 def expand_agda_term_placeholder(match):
-    """Replaces \MacroName{} with \texttt{@@AgdaTerm@@...} marker"""
+    """Replaces MacroName{} with \texttt{@@AgdaTerm@@...} marker"""
     global macro_data
     macro_name = match.group(1)
     term_info = macro_data.get("agda_terms", {}).get(macro_name)
     if term_info and isinstance(term_info, dict):
-        basename = term_info.get("basename", macro_name); agda_class = term_info.get("agda_class", "AgdaUnknown")
+        basename = term_info.get("basename", macro_name)
+        agda_class = term_info.get("agda_class", "AgdaUnknown")
         return f"\\texttt{{@@AgdaTerm@@basename={basename}@@class={agda_class}@@}}"
     else:
         # Return original if not found in JSON
@@ -62,7 +62,7 @@ def expand_agda_term_placeholder(match):
         return match.group(0)
 
 def expand_hldiff(match):
-    """Replaces \hldiff{...} with \HighlightPlaceholder{...}."""
+    """Replaces hldiff{...} with HighlightPlaceholder{...}."""
     # Group 1 captures the content inside \hldiff{...}
     content = match.group(1)
     return f"\\HighlightPlaceholder{{{content}}}"
@@ -96,7 +96,7 @@ def preprocess_lagda(content):
 
     # 4. Replace \hldiff with \HighlightPlaceholder
     # Use non-greedy match for content and DOTALL flag
-    content = re.sub(r'\\hldiff\{(.*?)\}', expand_hldiff, content, flags=re.DOTALL) 
+    content = re.sub(r'\\hldiff\{(.*?)\}', expand_hldiff, content, flags=re.DOTALL)
 
     # 5. Remove figure* environment wrappers
     content = re.sub(r'^\s*\\begin\{figure\*}(\[[^\]]*\])?\s*?\n', '', content, flags=re.MULTILINE)
@@ -139,7 +139,7 @@ if __name__ == "__main__":
         with open(input_lagda_file, 'r', encoding='utf-8') as f_lagda:
             input_content = f_lagda.read()
 
-        # Process content (this populates global code_blocks_data)
+        # populate global code_blocks_data
         processed_content = preprocess_lagda(input_content)
 
         # Output processed LaTeX (with placeholders) to stdout
@@ -150,7 +150,6 @@ if __name__ == "__main__":
             json.dump(code_blocks_data, f_code, indent=2)
         # Use stderr for status messages to not interfere with stdout redirection
         print(f"Code blocks saved to {output_code_blocks_file}", file=sys.stderr)
-
 
     except FileNotFoundError as e:
         print(f"Error: Input file not found: {e.filename}", file=sys.stderr)
