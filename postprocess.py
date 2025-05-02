@@ -1,56 +1,69 @@
-# postprocess.py (Phase 2 - Admonitions for Conway & Hidden Code)
+# postprocess.py (Phase 2 - Admonitions Fixes)
 import re
 import json
 import sys
 
-# Helper function to indent a block of text
+# Helper function to indent a block of text's non-empty lines
 def indent_block(text, prefix="    "):
-    # Ensure we don't indent already fully blank lines,
-    # but do indent lines with only whitespace (to preserve structure)
-    return "\n".join([prefix + line if line.strip() or line.isspace() else line
-                       for line in text.splitlines()])
+    # Strip leading/trailing whitespace from the whole block first to handle edge cases
+    text = text.strip()
+    # Indent non-empty lines
+    return "\n".join([prefix + line if line.strip() else line
+                      for line in text.splitlines()])
 
-# Modified code block replacer
+# Code block replacer - Revised hidden block formatting
 def replace_code_placeholder(match, code_blocks):
     """Replaces code placeholder ID with formatted code block or admonition."""
     placeholder_id = match.group(0)
     block_data = code_blocks.get(placeholder_id)
-    if not block_data:
-        print(f"Warning: Code block data not found for {placeholder_id}", file=sys.stderr)
-        return placeholder_id
+    if not block_data: return placeholder_id
 
     content = block_data.get("content", "")
     is_hidden = block_data.get("hidden", False)
 
-    # Ensure content ends with newline - important for ``` formatting
-    if content and not content.endswith('\n'): content += '\n'
-    # Strip leading/trailing whitespace from the whole block before indenting
-    # This helps ensure consistent indentation within the admonition/code block
-    content = content.strip()
+    # Remove potential leading/trailing blank lines from captured code ONLY for formatting here
+    # Keep internal whitespace/newlines intact as much as possible
+    content_stripped = content.strip()
 
     if is_hidden:
-        # Indent the code content for placing inside admonition/code block
-        indented_code_content = indent_block(content, prefix="    ") # Indent code itself by 4 spaces
-        # Format as collapsible admonition containing the code block (indented another level)
-        # Using ??? note title makes it collapsed by default. Use ???+ for expanded.
-        title = "Supporting source code" # Or "Hidden Code Details" etc.
-        # Admonition marker needs newline before, code block needs newline before it within admonition
-        # Final newline added by join later
-        replacement_str = f'\n??? note "{title}"\n\n{indent_block("```agda\\n" + content + "```", prefix="    ")}'
+        title = "Supporting source code" # Or "Hidden Code Details"
+        # Indent the code block content itself by 4 spaces for nesting under ```agda
+        indented_code_content = indent_block(content_stripped, prefix="    ")
+        # Construct the admonition block string carefully
+        # Admonition marker ??? starts the block
+        # Content needs to be indented relative to the marker (4 spaces)
+        # Code block fence ```agda needs to be indented (4 spaces)
+        # Code content needs further indentation (8 spaces total) - indent_block handles the first 4
+        # Closing fence ``` needs to be indented (4 spaces)
+
+        # Let's build it line by line for clarity
+        lines = [
+            f'\n??? note "{title}"\n', # Start admonition (collapsed)
+            f'    ```agda'           # Indented opening fence
+        ]
+        # Add indented code lines (already indented by 4 spaces by indent_block)
+        lines.extend([f'    {line}' if line.strip() else line
+                      for line in indented_code_content.splitlines()])
+
+        lines.append('    ```')             # Indented closing fence
+        lines.append('')                 # Add a newline at the end for separation
+
+        replacement_str = "\n".join(lines)
         return replacement_str
     else:
-        # Format as visible block, add leading/trailing newline for separation
-        return f"\n```agda\n{content}\n```\n"
+        # Visible block - ensure leading/trailing newline separation
+        # Content itself should retain original indentation
+        return f"\n```agda\n{content_stripped}\n```\n"
 
-def process_conway_admonitions(content):
-    """Finds Conway markers, converts them to admonitions, and indents content."""
+# Renamed and Corrected Admonition Processor
+def process_admonitions(content):
+    """Finds admonition markers, converts them, and indents content below them."""
     output_lines = []
     is_indenting_admonition = False
     indent_prefix = "    " # 4 spaces for admonition content
-    admonition_title = "Conway specifics" # Default title
 
-    # Regex to find start marker and capture title
-    admonition_start_pattern = re.compile(r'^\s*@@ADMONITION_START\|(.*?)\s*@@\s*$')
+    # Regex to find start marker at the beginning of a line
+    admonition_start_pattern = re.compile(r'^\s*@@ADMONITION_START\|(.*?)\s*@@(.*)')
     admonition_end_pattern = re.compile(r'^\s*@@ADMONITION_END@@\s*$')
 
     for line in content.splitlines():
@@ -59,17 +72,25 @@ def process_conway_admonitions(content):
 
         if start_match:
             # Found start marker
-            title = start_match.group(1).strip() if start_match.group(1) else admonition_title
+            title = start_match.group(1).strip()
+            rest_of_line = start_match.group(2).strip() # Capture rest of line too
+
             # Output the MkDocs admonition syntax (collapsible)
             output_lines.append(f'\n??? note "{title}"\n')
             is_indenting_admonition = True # Start indenting lines that follow
+
+            # Handle the content immediately following the marker on the same line
+            if rest_of_line:
+                 output_lines.append(indent_prefix + rest_of_line)
+
         elif end_match:
             # Stop indenting when we hit the end marker
             is_indenting_admonition = False
             # Do not append the end marker line itself
         elif is_indenting_admonition:
             # If we are inside an admonition, indent the line
-            if line.strip() or line.isspace(): # Indent lines with content or only whitespace
+            # Indent lines with content or only whitespace
+            if line.strip() or line.isspace():
                 output_lines.append(indent_prefix + line)
             else:
                 output_lines.append(line) # Keep blank lines unindented
@@ -89,11 +110,11 @@ if __name__ == "__main__":
         with open(input_code_blocks_file, 'r', encoding='utf-8') as f_code: code_blocks = json.load(f_code)
         with open(input_md_file, 'r', encoding='utf-8') as f_md: intermediate_content = f_md.read()
 
-        # Step 1: Replace code block placeholders (now handles hidden blocks using admonitions)
+        # Step 1: Replace code block placeholders (handles hidden blocks using admonitions)
         content_with_code = re.sub(r'@@CODEBLOCK_ID_\d+@@', lambda m: replace_code_placeholder(m, code_blocks), intermediate_content)
 
         # Step 2: Process Conway admonitions and indentation
-        final_content = process_conway_admonitions(content_with_code)
+        final_content = process_admonitions(content_with_code) # Use corrected function
 
         # Write final output
         with open(output_lagda_md_file, 'w', encoding='utf-8') as f_out: f_out.write(final_content)
