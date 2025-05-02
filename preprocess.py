@@ -108,8 +108,12 @@ def preprocess_lagda(content):
 
     # *** 7. Replace Conway/NoConway environments with markers ***
     # Use MULTILINE flag to ensure ^ matches start of lines
-    content = re.sub(r'^\s*\\begin\{NoConway\}\s*?\n', '@@TAB_TITLE|Cardano@@\n', content, flags=re.MULTILINE)
-    content = re.sub(r'^\s*\\begin\{Conway\}\s*?\n', '@@TAB_TITLE|Conway@@\n', content, flags=re.MULTILINE)
+    # REVISED: Replace Conway/NoConway with markers ON SEPARATE LINES
+    #          Add \n\n before and \n after the marker line
+    #content = re.sub(r'^\s*\\begin\{NoConway\}\s*?\n', '@@TAB_TITLE|Cardano@@\n', content, flags=re.MULTILINE)
+    content = re.sub(r'^\s*\\begin\{NoConway\}\s*?\n', '\n\n@@TAB_TITLE|Cardano@@\n\n', content, flags=re.MULTILINE)
+    #content = re.sub(r'^\s*\\begin\{Conway\}\s*?\n', '@@TAB_TITLE|Conway@@\n', content, flags=re.MULTILINE)
+    content = re.sub(r'^\s*\\begin\{Conway\}\s*?\n', '\n\n@@TAB_TITLE|Conway@@\n\n', content, flags=re.MULTILINE)
     content = re.sub(r'^\s*\\end\{NoConway\}\s*?\n?', '', content, flags=re.MULTILINE) # Remove end tags
     content = re.sub(r'^\s*\\end\{Conway\}\s*?\n?', '', content, flags=re.MULTILINE)   # Remove end tags
 

@@ -33,6 +33,7 @@ def process_tabs_and_indent(content):
 
     for line in content.splitlines():
         tab_match = tab_marker_pattern.match(line)
+        #tab_match = re.match(r'^@@TAB_TITLE\|(.*)@@$', line.strip())
 
         if tab_match:
             # Found a tab marker line
