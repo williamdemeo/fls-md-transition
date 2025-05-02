@@ -29,8 +29,7 @@ def process_code_block(match, is_hidden):
     # Ensure content ends with a newline for consistency, preserve others
     # Careful: original_code might be None if regex somehow fails group capture
     if original_code is None: original_code = "" # Safety check
-    if not original_code.endswith('\n'):
-        original_code += '\n'
+    if not original_code.endswith('\n'): original_code += '\n'
 
     code_blocks_data[placeholder_id] = {
         "content": original_code,
@@ -41,7 +40,7 @@ def process_code_block(match, is_hidden):
 
 def replace_modulenote_direct(match):
     """Expands \modulenote directly"""
-    module_name = match.group(1)
+    module_name = match.group(1) # Capture group 1 is the module name
     module_text = f"Ledger.{module_name}"
     module_file = f"{module_name}.lagda"
     module_url = f"{repo_url}/{repo_src_base}/{module_file}"
@@ -55,13 +54,12 @@ def expand_agda_term_placeholder(match):
     macro_name = match.group(1)
     term_info = macro_data.get("agda_terms", {}).get(macro_name)
     if term_info and isinstance(term_info, dict):
-        basename = term_info.get("basename", macro_name)
-        agda_class = term_info.get("agda_class", "AgdaUnknown")
+        basename = term_info.get("basename", macro_name); agda_class = term_info.get("agda_class", "AgdaUnknown")
         return f"\\texttt{{@@AgdaTerm@@basename={basename}@@class={agda_class}@@}}"
     else:
-        # If macro not in JSON, return original matched text (e.g., \macro{})
-        print(f"Debug: Macro {macro_name} not found in JSON, keeping original.", file=sys.stderr)
-        return match.group(0) 
+        # Return original if not found in JSON
+        # print(f"Debug: Macro {macro_name} not found in JSON, keeping original.", file=sys.stderr)
+        return match.group(0)
 
 def expand_hldiff(match):
     """Replaces \hldiff{...} with \HighlightPlaceholder{...}."""
@@ -107,6 +105,13 @@ def preprocess_lagda(content):
     # 6. Remove AgdaMultiCode wrappers
     content = re.sub(r'^\s*\\begin\{AgdaMultiCode\}\s*?\n', '', content, flags=re.MULTILINE)
     content = re.sub(r'^\s*\\end\{AgdaMultiCode\}\s*?\n?', '', content, flags=re.MULTILINE)
+
+    # *** 7. Replace Conway/NoConway environments with markers ***
+    # Use MULTILINE flag to ensure ^ matches start of lines
+    content = re.sub(r'^\s*\\begin\{NoConway\}\s*?\n', '@@TAB_TITLE|Cardano@@\n', content, flags=re.MULTILINE)
+    content = re.sub(r'^\s*\\begin\{Conway\}\s*?\n', '@@TAB_TITLE|Conway@@\n', content, flags=re.MULTILINE)
+    content = re.sub(r'^\s*\\end\{NoConway\}\s*?\n?', '', content, flags=re.MULTILINE) # Remove end tags
+    content = re.sub(r'^\s*\\end\{Conway\}\s*?\n?', '', content, flags=re.MULTILINE)   # Remove end tags
 
     return content
 
