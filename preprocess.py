@@ -110,12 +110,13 @@ def preprocess_lagda(content):
     # Use MULTILINE flag to ensure ^ matches start of lines
     # REVISED: Replace Conway/NoConway with markers ON SEPARATE LINES
     #          Add \n\n before and \n after the marker line
-    #content = re.sub(r'^\s*\\begin\{NoConway\}\s*?\n', '@@TAB_TITLE|Cardano@@\n', content, flags=re.MULTILINE)
-    content = re.sub(r'^\s*\\begin\{NoConway\}\s*?\n', '\n\n@@TAB_TITLE|Cardano@@\n\n', content, flags=re.MULTILINE)
-    #content = re.sub(r'^\s*\\begin\{Conway\}\s*?\n', '@@TAB_TITLE|Conway@@\n', content, flags=re.MULTILINE)
-    content = re.sub(r'^\s*\\begin\{Conway\}\s*?\n', '\n\n@@TAB_TITLE|Conway@@\n\n', content, flags=re.MULTILINE)
-    content = re.sub(r'^\s*\\end\{NoConway\}\s*?\n?', '', content, flags=re.MULTILINE) # Remove end tags
-    content = re.sub(r'^\s*\\end\{Conway\}\s*?\n?', '', content, flags=re.MULTILINE)   # Remove end tags
+    # REVISED: Remove NoConway wrappers completely
+    content = re.sub(r'^\s*\\begin\{NoConway\}\s*?\n', '', content, flags=re.MULTILINE)
+    content = re.sub(r'^\s*\\end\{NoConway\}\s*?\n?', '', content, flags=re.MULTILINE)
+    # Replace Conway wrappers with Admonition markers; use a distinct marker name.
+    # Add double newlines for potentially better separation before Pandoc.
+    content = re.sub(r'^\s*\\begin\{Conway\}\s*?\n', '\n\n@@ADMONITION_START|Conway specifics@@\n\n', content, flags=re.MULTILINE)
+    content = re.sub(r'^\s*\\end\{Conway\}\s*?\n?', '\n\n@@ADMONITION_END@@\n\n', content, flags=re.MULTILINE)
 
     return content
 

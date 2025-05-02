@@ -1,9 +1,8 @@
--- agda-filter.lua (Version 8 - Simplified for Tab Post-Processing)
+-- agda-filter.lua (Version 9 - Further Simplified)
 -- Processes output from preprocess.py (which wraps Agda code in verbatim
--- within HiddenAgdaCode/VisibleAgdaCode environments, and uses
--- \texttt{@@AgdaTerm@@...} placeholders for inline terms).
--- Outputs GFM suitable for .lagda.md files, aiming to fix list rendering
--- and code block formatting/presence issues.
+-- within HiddenAgdaCode/VisibleAgdaCode environments.
+
+-- No longer needs specific Div handling for NoConway/Conway
 
 -- Helper function to check if a Lua list (table) contains an item
 local function list_contains(list, item) if not list then return false end; for _, value in ipairs(list) do if value == item then return true end end; return false end
@@ -12,10 +11,8 @@ local function parse_placeholder_args_from_marker(marker_text) local args = {}; 
 -- Helper function to create Pandoc attributes (2.x/3.x compatible)
 local function create_attrs(classes, kv_pairs) classes = classes or {}; kv_pairs = kv_pairs or {}; if type(pandoc.Attr) == "function" then return pandoc.Attr("", classes, kv_pairs) else return {"", classes, kv_pairs} end end
 
--- Process Div blocks - simplified, no longer handles NoConway/Conway specially
+-- Walk all Divs to process inline content within them
 function Div(div)
-  -- Walk Divs using the inline handlers (Code, RawInline)
-  -- This ensures placeholders inside any Div are processed.
   local walkers = { Code = Code, RawInline = RawInline }
   return pandoc.walk_block(div, walkers)
 end
@@ -23,14 +20,10 @@ end
 -- Process RawInline elements (mainly for HighlightPlaceholder)
 function RawInline(inline)
   if inline.format and inline.format:match 'latex' then
-    -- Use non-greedy match for content
     local highlight_match = inline.text:match '\\HighlightPlaceholder{(.*)}'
     if highlight_match then
-       local content_str = highlight_match;
-       -- Assume simple text content
-       local content_inline = { pandoc.Str(content_str) }
-       local attrs = create_attrs({"highlight"});
-       return pandoc.Span(content_inline, attrs)
+       local content_str = highlight_match; local content_inline = { pandoc.Str(content_str) }
+       local attrs = create_attrs({"highlight"}); return pandoc.Span(content_inline, attrs)
     end
   end
   return inline
@@ -45,33 +38,8 @@ function Code(inline)
          local css_class = "agda-" .. args['class']:lower(); local attrs = create_attrs({css_class})
          return pandoc.Code(args.basename, attrs)
      else
-        print("Warning: Could not parse AgdaTerm marker payload: " .. payload);
-        return inline -- Return original Code with marker if parsing fails
+        print("Warning: Could not parse AgdaTerm marker payload: " .. payload); return inline
      end
   end
   return inline
 end
-
--- Handler for Paragraphs to detect Tab Markers ***
-function Para(para)
-  -- Check if paragraph consists ONLY of our tab marker string
-  -- Use pandoc.utils.stringify which gets the raw text of the Para's inlines
-  local para_text = pandoc.utils.stringify(para)
-  -- Match the marker pattern anchored to start/end after stripping whitespace
-  local marker_match = para_text:match("^%s*@@TAB_TITLE%|.*@@%s*$")
-
-  if marker_match then
-    -- If it's just the marker, output it as a Raw Markdown block
-    -- to ensure it stays on its own line in the intermediate file.
-    -- Include the original text (which already has the marker).
-    return pandoc.RawBlock("markdown", para_text .. "\n")
-  end
-
-  -- Otherwise, return the paragraph, but walk its content
-  -- to process any inline elements (Code, RawInline) inside it.
-  local walkers = { Code = Code, RawInline = RawInline }
-  return pandoc.walk_block(para, walkers)
-end
-
--- Ensure all handlers (Div, RawInline, Code, Para) are implicitly returned
--- by being global functions, or explicitly return them in a table if preferred.
