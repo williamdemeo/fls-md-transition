@@ -2,6 +2,7 @@
 import re
 import json
 import sys
+import io
 
 # Helper function to indent a block of text
 def indent_block(text, prefix="    "):
@@ -28,12 +29,21 @@ def replace_code_placeholder(match, code_blocks):
     is_hidden = block_data.get("hidden", False)
 
     # Ensure content ends with a newline (important before closing fence)
-    if content and not content.endswith('\n'):
-        content += '\n'
+    # Use rstrip() to remove only trailing whitespace before check/add
+    content_rstrip = content.rstrip()
+    if content and not content_rstrip.endswith('\n'):
+       content = content_rstrip + '\n'
+    else:
+       # If original content was empty or only whitespace, keep it empty maybe?
+       # Or just use the rstrip version if it wasn't empty
+       if content.strip(): # If there was non-whitespace content
+           content = content_rstrip + '\n'
+       else: # Handle case where content was purely whitespace/empty
+           content = '\n' # Ensure at least a newline
 
     if is_hidden:
         title = "Supporting source code"
-        # 1. Format the raw code block first
+        # 1. Format the raw code block first (using content which now reliably ends in \n)
         code_block_str = f"```agda\n{content}```"
         # 2. Indent the entire code block string for the admonition
         indented_code_block = indent_block(code_block_str, prefix="    ")
@@ -42,8 +52,41 @@ def replace_code_placeholder(match, code_blocks):
         return replacement_str
     else:
         # Format as visible block, ensure surrounding newlines
-        # Use the original content directly.
+        # Use the original content directly (now guaranteed to end in \n).
         return f"\n```agda\n{content}```\n"
+
+
+
+
+# def replace_code_placeholder(match, code_blocks):
+#     """Replaces code placeholder ID with formatted code block or admonition."""
+#     placeholder_id = match.group(0)
+#     block_data = code_blocks.get(placeholder_id)
+#     if not block_data:
+#         print(f"Warning: Code block data not found for {placeholder_id}", file=sys.stderr)
+#         return placeholder_id
+
+#     # *** Get content WITHOUT stripping overall whitespace ***
+#     content = block_data.get("content", "")
+#     is_hidden = block_data.get("hidden", False)
+
+#     # Ensure content ends with a newline (important before closing fence)
+#     if content and not content.endswith('\n'):
+#         content += '\n'
+
+#     if is_hidden:
+#         title = "Supporting source code"
+#         # 1. Format the raw code block first
+#         code_block_str = f"```agda\n{content}```"
+#         # 2. Indent the entire code block string for the admonition
+#         indented_code_block = indent_block(code_block_str, prefix="    ")
+#         # 3. Construct the final admonition string with surrounding newlines
+#         replacement_str = f'\n??? note "{title}"\n\n{indented_code_block}\n'
+#         return replacement_str
+#     else:
+#         # Format as visible block, ensure surrounding newlines
+#         # Use the original content directly.
+#         return f"\n```agda\n{content}```\n"
 
 # Conway Admonition processing (Revised based on working Tab logic)
 def process_conway_admonitions(content):
@@ -56,36 +99,39 @@ def process_conway_admonitions(content):
     admonition_start_pattern = re.compile(r'^\s*@@ADMONITION_START\|(.*?)\s*@@(.*)')
     admonition_end_pattern = re.compile(r'^\s*@@ADMONITION_END@@\s*$')
 
-    for line in content.splitlines():
-        start_match = admonition_start_pattern.match(line)
-        end_match = admonition_end_pattern.match(line)
+    print("\nDEBUG: Starting process_conway_admonitions...", file=sys.stderr) # DEBUG
+    # Use io.StringIO for slightly more robust line iteration
+    input_stream = io.StringIO(content)
+    for i, line in enumerate(input_stream):
+        line_content = line.rstrip('\r\n') # Use rstrip to remove newline chars reliably
+
+        # *** ADD THIS DEBUG PRINT VVV ***
+        print(f"DEBUG: Processing line {i+1}: {repr(line_content)}", file=sys.stderr)
+
+        start_match = admonition_start_pattern.match(line_content)
+        end_match = admonition_end_pattern.match(line_content.strip()) # Match end marker even if indented
 
         if start_match:
             title = start_match.group(1).strip() if start_match.group(1) else "Conway specifics"
             rest_of_line = start_match.group(2)
-            # Output the MkDocs admonition syntax (collapsible)
-            output_lines.append(f'\n??? note "{title}"\n') # Add blank line after marker
-            is_indenting_admonition = True # Start indenting lines that follow
-            # Handle content on the same line as the marker (indent it)
+            print(f"DEBUG: Found START marker on line {i+1}. Title='{title}', Rest='{rest_of_line}'", file=sys.stderr) # DEBUG
+            output_lines.append(f'\n??? note "{title}"\n')
+            is_indenting_admonition = True
             if rest_of_line.strip():
                 output_lines.append(indent_prefix + rest_of_line)
         elif end_match and is_indenting_admonition:
-            # Stop indenting when we hit the end marker
+            print(f"DEBUG: Found END marker on line {i+1}.", file=sys.stderr) # DEBUG
             is_indenting_admonition = False
-            # Do not append the end marker line itself
         elif is_indenting_admonition:
-            # If we are inside an admonition, indent the line
-            if line.strip() or line.isspace(): # Indent lines with content or only whitespace
-                output_lines.append(indent_prefix + line)
+            if line_content.strip() or line_content.isspace():
+                output_lines.append(indent_prefix + line_content)
             else:
-                output_lines.append(line) # Keep blank lines unindented
+                output_lines.append(line_content)
         else:
-            # Line is outside any admonition, append as is
-            output_lines.append(line)
+            output_lines.append(line_content)
 
-    # Join lines back, adding a final newline
+    print("DEBUG: Finished process_conway_admonitions.", file=sys.stderr) # DEBUG
     return "\n".join(output_lines) + "\n"
-
 
 if __name__ == "__main__":
     if len(sys.argv) != 4: print(f"Usage: python {sys.argv[0]} <input_md_intermediate> <input_code_blocks_json> <output_lagda_md>"); sys.exit(1)
