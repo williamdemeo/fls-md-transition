@@ -1,4 +1,4 @@
-# fls-translate
+# fls-md-transition
 
 Scripts for translating LaTeX-based literate Agda files into Markdown-based literate
 Agda.
