@@ -12,6 +12,7 @@ repo_src_base = "blob/master/src/Ledger"
 # Stores { "placeholder_id": {"content": "...", "hidden": True/False} }
 code_blocks_data = {}
 code_block_counter = 0
+
 # Stores macro definitions loaded from JSON file
 macro_data = {}
 
@@ -108,9 +109,6 @@ def preprocess_lagda(content):
 
     # *** 7. Replace Conway/NoConway environments with markers ***
     # Use MULTILINE flag to ensure ^ matches start of lines
-    # REVISED: Replace Conway/NoConway with markers ON SEPARATE LINES
-    #          Add \n\n before and \n after the marker line
-    # REVISED: Remove NoConway wrappers completely
     content = re.sub(r'^\s*\\begin\{NoConway\}\s*?\n', '', content, flags=re.MULTILINE)
     content = re.sub(r'^\s*\\end\{NoConway\}\s*?\n?', '', content, flags=re.MULTILINE)
     # Replace Conway wrappers with Admonition markers; use a distinct marker name.
